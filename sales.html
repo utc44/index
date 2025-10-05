@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Gestione Vendite</title>
+  <style>
+    :root{--blue:#0066ff;--bg:#f6f8fc;--card:#ffffff;--muted:#7b7f88}
+    *{box-sizing:border-box;font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial}
+    body{margin:0;background:linear-gradient(180deg,#7b6ef2 0%, #7a9cff 100%);min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:32px}
+    .container{width:100%;max-width:420px;background:transparent}
+    header{background:var(--blue);color:#fff;border-radius:18px;padding:28px 22px 24px;box-shadow:0 6px 18px rgba(10,20,70,0.18);margin-bottom:18px}
+    header h1{margin:0;font-size:28px;display:flex;align-items:center;gap:10px}
+    header p{margin:8px 0 0;color:rgba(255,255,255,0.95);opacity:0.95}
+    .card{background:var(--card);border-radius:14px;padding:18px;margin-bottom:18px;box-shadow:0 6px 18px rgba(7,12,30,0.06)}
+    label{display:block;color:#4b5563;font-size:14px;margin-bottom:8px}
+    input[type=date], input[type=number]{width:100%;padding:14px;border-radius:10px;border:1px solid #e6e9ef;font-size:16px}
+    .btn{display:inline-flex;align-items:center;gap:10px;padding:12px 18px;border-radius:10px;border:none;cursor:pointer}
+    .btn-save{background:linear-gradient(180deg,#0e67ff,#0054d6);color:#fff;box-shadow:0 6px 12px rgba(12,83,210,0.18)}
+    .stats{display:flex;flex-direction:column;gap:14px}
+    .stat-box{background:var(--card);border-radius:12px;padding:22px;text-align:center;box-shadow:0 6px 18px rgba(7,12,30,0.06)}
+    .stat-box .big{font-size:32px;color:var(--blue);font-weight:700}
+    .muted{color:var(--muted);letter-spacing:2px}
+    .list{margin-top:12px}
+    .sale-item{display:flex;justify-content:space-between;align-items:center;padding:12px;border-radius:10px;border:1px solid #f0f2f6;margin-bottom:8px}
+    .controls{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
+    .btn-ghost{background:#fff;border:1px solid #e6e9ef}
+    footer{margin-top:12px;text-align:center;color:rgba(255,255,255,0.9)}
+    @media (max-width:460px){body{padding:20px}}
+
+    /* Print styling */
+    @media print {
+      body { background:#fff; color:#000; padding:20px; }
+      .no-print, #showBtn, #clearBtn, #saveBtn, #exportBtn, #printBtn { display:none !important; }
+      .print-header { text-align:center; color:#0066ff; font-size:22px; font-weight:bold; margin-bottom:20px; }
+      .print-sale { display:flex; justify-content:space-between; border-bottom:1px solid #ccc; padding:6px 0; font-size:15px; }
+      .print-total { margin-top:20px; font-weight:bold; text-align:right; font-size:16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>💰 Gestione Vendite</h1>
+      <p>Traccia le tue vendite giornaliere in modo semplice ed efficace</p>
+    </header>
+
+    <div class="card">
+      <h3>📝 Inserisci Nuova Vendita</h3>
+      <div style="margin-top:12px">
+        <label for="saleDate">Data della Vendita</label>
+        <input type="date" id="saleDate" />
+      </div>
+
+      <div style="margin-top:12px">
+        <label for="amount">Importo (€)</label>
+        <input type="number" id="amount" placeholder="0.00" step="0.01" min="0" />
+      </div>
+
+      <div class="controls">
+        <button class="btn btn-save" id="saveBtn">💾 Salva Vendita</button>
+        <button class="btn btn-ghost" id="showBtn">👁️ Mostra Vendite</button>
+        <button class="btn btn-ghost" id="printBtn">🖨️ Stampa Mese</button>
+        <button class="btn btn-ghost" id="exportBtn">📊 Esporta Excel</button>
+        <button class="btn btn-ghost" id="clearBtn" title="Cancella tutte le vendite">🗑️ Azzera</button>
+      </div>
+    </div>
+
+    <div class="stat-box">
+      <div class="big" id="totalCount">0</div>
+      <div class="muted">VENDITE TOTALI</div>
+    </div>
+
+    <div class="card" id="listCard" style="display:none;margin-top:12px">
+      <h3>Lista Vendite</h3>
+      <div id="salesList" class="list"></div>
+      <div style="margin-top:10px;text-align:right">
+        <strong>Totale: </strong><span id="totalSum">€0.00</span>
+      </div>
+    </div>
+
+    <footer><small>Salvataggio locale nel browser (localStorage). Funziona offline.</small></footer>
+  </div>
+
+  <!-- Include XLSX.js library for Excel export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <script>
+    const STORAGE_KEY = 'gestione_vendite_fixed';
+
+    function formatCurrency(v) {
+      return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(v);
+    }
+
+    function todayISO() {
+      const d = new Date();
+      return d.toISOString().split('T')[0];
+    }
+
+    function loadSales() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        console.error(e);
+        return [];
+      }
+    }
+
+    function saveSales(arr) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+    }
+
+    function sortSales(sales) {
+      return sales.sort((a, b) => new Date(b.date) - new Date(a.date));
+    }
+
+    function addSale(amount, date) {
+      const sales = loadSales();
+      const sale = { id: Date.now(), date, amount: Number(amount) };
+      sales.push(sale);
+      saveSales(sortSales(sales));
+      renderStats();
+      renderList();
+    }
+
+    function deleteSale(id) {
+      if (!confirm('Vuoi davvero eliminare questa vendita?')) return;
+      const sales = loadSales().filter(s => s.id !== id);
+      saveSales(sales);
+      renderStats();
+      renderList();
+    }
+
+    function renderStats() {
+      const sales = loadSales();
+      document.getElementById('totalCount').textContent = sales.length;
+      const sum = sales.reduce((s, i) => s + Number(i.amount || 0), 0);
+      document.getElementById('totalSum').textContent = formatCurrency(sum);
+    }
+
+    function renderList() {
+      const sales = sortSales(loadSales());
+      const container = document.getElementById('salesList');
+      container.innerHTML = '';
+      if (sales.length === 0) {
+        container.innerHTML = '<div style="color:#667085">Nessuna vendita trovata.</div>';
+        return;
+      }
+
+      sales.forEach(s => {
+        const el = document.createElement('div');
+        el.className = 'sale-item';
+        const dateStr = new Date(s.date + 'T00:00:00').toLocaleDateString('it-IT', {day:'2-digit',month:'short',year:'numeric'});
+        const infoDiv = document.createElement('div');
+        infoDiv.innerHTML = `<div>${dateStr}</div><div><strong>${formatCurrency(s.amount)}</strong></div>`;
+        infoDiv.style.flex = '1';
+
+        const btnEdit = document.createElement('button');
+        btnEdit.textContent = '✏️';
+        btnEdit.className = 'btn btn-ghost';
+        btnEdit.style.padding = '4px 8px';
+        btnEdit.addEventListener('click', () => enterEditMode(s.id, el));
+
+        const btnDelete = document.createElement('button');
+        btnDelete.textContent = '🗑️';
+        btnDelete.className = 'btn btn-ghost';
+        btnDelete.style.padding = '4px 8px';
+        btnDelete.addEventListener('click', () => deleteSale(s.id));
+
+        const controlDiv = document.createElement('div');
+        controlDiv.style.display = 'flex';
+        controlDiv.style.gap = '6px';
+        controlDiv.appendChild(btnEdit);
+        controlDiv.appendChild(btnDelete);
+
+        el.appendChild(infoDiv);
+        el.appendChild(controlDiv);
+        container.appendChild(el);
+      });
+    }
+
+    function enterEditMode(id, el) {
+      const sales = loadSales();
+      const sale = sales.find(s => s.id === id);
+      if (!sale) return;
+
+      el.innerHTML = '';
+      const inputDate = document.createElement('input');
+      inputDate.type = 'date';
+      inputDate.value = sale.date;
+      const inputAmount = document.createElement('input');
+      inputAmount.type = 'number';
+      inputAmount.step = '0.01';
+      inputAmount.value = sale.amount;
+
+      const btnSave = document.createElement('button');
+      btnSave.textContent = '✅';
+      btnSave.className = 'btn btn-save';
+      btnSave.addEventListener('click', () => {
+        sale.date = inputDate.value;
+        sale.amount = Number(Number(inputAmount.value).toFixed(2));
+        saveSales(sortSales(sales));
+        renderStats();
+        renderList();
+      });
+
+      const btnCancel = document.createElement('button');
+      btnCancel.textContent = '❌';
+      btnCancel.className = 'btn btn-ghost';
+      btnCancel.addEventListener('click', () => renderList());
+
+      const editRow = document.createElement('div');
+      editRow.style.display = 'flex';
+      editRow.style.gap = '8px';
+      editRow.appendChild(inputDate);
+      editRow.appendChild(inputAmount);
+      editRow.appendChild(btnSave);
+      editRow.appendChild(btnCancel);
+      el.appendChild(editRow);
+    }
+
+    // Export Excel using SheetJS (XLSX) library
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      const sales = loadSales();
+      if (sales.length === 0) {
+        alert('Nessuna vendita da esportare.');
+        return;
+      }
+
+      const data = sales.map(s => ({
+        Data: s.date,
+        Importo: s.amount,
+        Mese: new Date(s.date + 'T00:00:00').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Vendite');
+      XLSX.writeFile(workbook, 'vendite.xlsx');
+    });
+
+
+    // Improved Print function with robust validation and inline formatting
+    document.getElementById('printBtn').addEventListener('click', () => {
+      let month = prompt('Inserisci il mese da stampare (es. 2025-10):');
+      if (!month) return;
+      month = month.trim();
+
+      // Accept YYYY-MM where MM is 01-12
+      if (!/^\d{4}-\d{2}$/.test(month)) {
+        alert('Formato non valido. Usa YYYY-MM, es. 2025-10.');
+        return;
+      }
+      const [yy, mm] = month.split('-').map(Number);
+      if (mm < 1 || mm > 12) {
+        alert('Mese non valido. Usa un valore tra 01 e 12.');
+        return;
+      }
+
+      const sales = loadSales().filter(s => s.date.startsWith(month));
+      if (sales.length === 0) {
+        alert('Nessuna vendita trovata per questo mese.');
+        return;
+      }
+
+      const dateObj = new Date(month + '-01');
+      const monthName = dateObj.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }).toUpperCase();
+
+      const rowsHtml = sales.map(s => {
+        const d = new Date(s.date + 'T00:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+        const amt = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(s.amount);
+        return `<div class="print-sale"><div>${d}</div><div>${amt}</div></div>`;
+      }).join('');
+
+      const total = sales.reduce((sum, s) => sum + s.amount, 0);
+      const totalFmt = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(total);
+
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html><head><title>Vendite ${monthName}</title>
+        <style>
+          body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial; padding:20px; color:#000}
+          .print-header{ text-align:center; color:#0066ff; font-size:22px; font-weight:bold; margin-bottom:20px; }
+          .print-sale{ display:flex; justify-content:space-between; border-bottom:1px solid #ccc; padding:6px 0; font-size:15px; }
+          .print-total{ margin-top:20px; font-weight:bold; text-align:right; font-size:16px; }
+        </style>
+        </head><body>
+          <div class="print-header">${monthName}</div>
+          ${rowsHtml}
+          <div class="print-total">Totale Mese: ${totalFmt}</div>
+        </body></html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      // give the new window a moment to render before calling print
+      setTimeout(() => {
+        printWindow.print();
+      }, 250);
+    });
+
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      const a = document.getElementById('amount').value;
+      const d = document.getElementById('saleDate').value || todayISO();
+      if (a === '' || isNaN(a) || Number(a) < 0) {
+        alert('Inserisci un importo valido (>= 0)');
+        return;
+      }
+      addSale(Number(Number(a).toFixed(2)), d);
+      document.getElementById('amount').value = '';
+    });
+
+    document.getElementById('showBtn').addEventListener('click', () => {
+      const c = document.getElementById('listCard');
+      c.style.display = c.style.display === 'none' ? 'block' : 'none';
+      if (c.style.display === 'block') {
+        renderList();
+      }
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      if (confirm('Sei sicuro di voler cancellare tutte le vendite salvate localmente?')) {
+        localStorage.removeItem(STORAGE_KEY);
+        renderStats();
+        renderList();
+      }
+    });
+
+    document.getElementById('saleDate').value = todayISO();
+    renderStats();
+    renderList();
+  </script>
+</body>
+</html>
